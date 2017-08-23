@@ -360,7 +360,7 @@ public class ECDSASHA2Verify {
 		}
 	}
 
-	private static String getSignatureAlgorithmForParams(ECParameterSpec params) {
+	public static String getSignatureAlgorithmForParams(ECParameterSpec params) {
 		int size = getCurveSize(params);
 		if (size <= 256) {
 			return "SHA256withECDSA";
