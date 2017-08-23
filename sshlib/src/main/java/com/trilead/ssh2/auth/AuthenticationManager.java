@@ -4,6 +4,7 @@ package com.trilead.ssh2.auth;
 import java.io.IOException;
 import java.security.KeyPair;
 import java.security.PrivateKey;
+import java.security.PublicKey;
 import java.security.SecureRandom;
 import java.security.interfaces.DSAPrivateKey;
 import java.security.interfaces.DSAPublicKey;
@@ -192,20 +193,7 @@ public class AuthenticationManager implements MessageHandler
 
 				byte[] pk_enc = DSASHA1Verify.encodeSSHDSAPublicKey((DSAPublicKey) pair.getPublic());
 
-				TypesWriter tw = new TypesWriter();
-
-				byte[] H = tm.getSessionIdentifier();
-
-				tw.writeString(H, 0, H.length);
-				tw.writeByte(Packets.SSH_MSG_USERAUTH_REQUEST);
-				tw.writeString(user);
-				tw.writeString("ssh-connection");
-				tw.writeString("publickey");
-				tw.writeBoolean(true);
-				tw.writeString("ssh-dss");
-				tw.writeString(pk_enc, 0, pk_enc.length);
-
-				byte[] msg = tw.getBytes();
+				byte[] msg = this.generatePublicKeyUserAuthRequest(user, "ssh-dss", pk_enc);
 
 				byte[] ds = DSASHA1Verify.generateSignature(msg, pk, rnd);
 
@@ -221,21 +209,7 @@ public class AuthenticationManager implements MessageHandler
 
 				byte[] pk_enc = RSASHA1Verify.encodeSSHRSAPublicKey((RSAPublicKey) pair.getPublic());
 
-				TypesWriter tw = new TypesWriter();
-				{
-					byte[] H = tm.getSessionIdentifier();
-
-					tw.writeString(H, 0, H.length);
-					tw.writeByte(Packets.SSH_MSG_USERAUTH_REQUEST);
-					tw.writeString(user);
-					tw.writeString("ssh-connection");
-					tw.writeString("publickey");
-					tw.writeBoolean(true);
-					tw.writeString("ssh-rsa");
-					tw.writeString(pk_enc, 0, pk_enc.length);
-				}
-
-				byte[] msg = tw.getBytes();
+				byte[] msg = this.generatePublicKeyUserAuthRequest(user, "ssh-rsa", pk_enc);
 
 				byte[] ds = RSASHA1Verify.generateSignature(msg, pk);
 
@@ -254,21 +228,7 @@ public class AuthenticationManager implements MessageHandler
 
 				byte[] pk_enc = ECDSASHA2Verify.encodeSSHECDSAPublicKey((ECPublicKey) pair.getPublic());
 
-				TypesWriter tw = new TypesWriter();
-				{
-					byte[] H = tm.getSessionIdentifier();
-
-					tw.writeString(H, 0, H.length);
-					tw.writeByte(Packets.SSH_MSG_USERAUTH_REQUEST);
-					tw.writeString(user);
-					tw.writeString("ssh-connection");
-					tw.writeString("publickey");
-					tw.writeBoolean(true);
-					tw.writeString(algo);
-					tw.writeString(pk_enc, 0, pk_enc.length);
-				}
-
-				byte[] msg = tw.getBytes();
+				byte[] msg = this.generatePublicKeyUserAuthRequest(user, algo, pk_enc);
 
 				byte[] ds = ECDSASHA2Verify.generateSignature(msg, pk);
 
@@ -287,21 +247,7 @@ public class AuthenticationManager implements MessageHandler
 
 				byte[] pk_enc = Ed25519Verify.encodeSSHEd25519PublicKey((EdDSAPublicKey) pair.getPublic());
 
-				TypesWriter tw = new TypesWriter();
-				{
-					byte[] H = tm.getSessionIdentifier();
-
-					tw.writeString(H, 0, H.length);
-					tw.writeByte(Packets.SSH_MSG_USERAUTH_REQUEST);
-					tw.writeString(user);
-					tw.writeString("ssh-connection");
-					tw.writeString("publickey");
-					tw.writeBoolean(true);
-					tw.writeString(algo);
-					tw.writeString(pk_enc, 0, pk_enc.length);
-				}
-
-				byte[] msg = tw.getBytes();
+				byte[] msg = this.generatePublicKeyUserAuthRequest(user,algo,pk_enc);
 
 				byte[] ds = Ed25519Verify.generateSignature(msg, pk);
 
@@ -317,30 +263,120 @@ public class AuthenticationManager implements MessageHandler
 				throw new IOException("Unknown private key type returned by the PEM decoder.");
 			}
 
-			byte[] ar = getNextMessage();
-			if (ar[0] == Packets.SSH_MSG_USERAUTH_SUCCESS)
-			{
-				authenticated = true;
-				tm.removeMessageHandler(this, 0, 255);
-				return true;
-			}
-
-			if (ar[0] == Packets.SSH_MSG_USERAUTH_FAILURE)
-			{
-				PacketUserauthFailure puf = new PacketUserauthFailure(ar, 0, ar.length);
-
-				remainingMethods = puf.getAuthThatCanContinue();
-				isPartialSuccess = puf.isPartialSuccess();
-
-				return false;
-			}
-
-			throw new IOException("Unexpected SSH message (type " + ar[0] + ")");
-
+			return this.isPublicKeyAuthenticationSuccessful();
 		}
 		catch (IOException e)
 		{
-e.printStackTrace();
+			e.printStackTrace();
+			tm.close(e, false);
+			throw (IOException) new IOException("Publickey authentication failed.").initCause(e);
+		}
+	}
+
+	public boolean authenticatePublicKey(String user, SignatureManager signatureManager)
+			throws IOException
+	{
+		PublicKey publicKey = signatureManager.getPublicKey();
+
+		try
+		{
+			initialize(user);
+
+			if (methodPossible("publickey") == false)
+				throw new IOException("Authentication method publickey not supported by the server at this stage.");
+
+			if (publicKey instanceof DSAPublicKey)
+			{
+				byte[] pk_enc = DSASHA1Verify.encodeSSHDSAPublicKey((DSAPublicKey) publicKey);
+
+				byte[] msg = this.generatePublicKeyUserAuthRequest(user, "ssh-dss", pk_enc);
+
+				byte[] ds = signatureManager.sign(msg, SignatureManager.SIGNATURE_ALGORITHM_DSA_SHA1);
+
+				if (ds == null) {
+					return false;
+				}
+
+				byte[] ds_enc = DSASHA1Verify.encodeSSHDSASignature(ds);
+
+				PacketUserauthRequestPublicKey ua = new PacketUserauthRequestPublicKey("ssh-connection", user,
+						"ssh-dss", pk_enc, ds_enc);
+				tm.sendMessage(ua.getPayload());
+			}
+			else if (publicKey instanceof RSAPublicKey)
+			{
+				byte[] pk_enc = RSASHA1Verify.encodeSSHRSAPublicKey((RSAPublicKey) publicKey);
+
+				byte[] msg = this.generatePublicKeyUserAuthRequest(user, "ssh-rsa", pk_enc);
+
+				byte[] ds = signatureManager.sign(msg, SignatureManager.SIGNATURE_ALGORITHM_RSA_SHA1);
+
+				if (ds == null) {
+					return false;
+				}
+
+				byte[] rsa_sig_enc = RSASHA1Verify.encodeSSHRSASignature(ds);
+
+				PacketUserauthRequestPublicKey ua = new PacketUserauthRequestPublicKey("ssh-connection", user,
+						"ssh-rsa", pk_enc, rsa_sig_enc);
+
+				tm.sendMessage(ua.getPayload());
+			}
+			else if (publicKey instanceof ECPublicKey)
+			{
+				ECPublicKey ecPublicKey = (ECPublicKey) publicKey;
+
+				final String algo = ECDSASHA2Verify.ECDSA_SHA2_PREFIX
+						+ ECDSASHA2Verify.getCurveName(ecPublicKey.getParams());
+
+				byte[] pk_enc = ECDSASHA2Verify.encodeSSHECDSAPublicKey(ecPublicKey);
+
+				byte[] msg = this.generatePublicKeyUserAuthRequest(user, algo, pk_enc);
+
+				byte[] ds = signatureManager.sign(msg, ECDSASHA2Verify.getSignatureAlgorithmForParams(ecPublicKey.getParams()));
+
+				if (ds == null) {
+					return false;
+				}
+
+				byte[] ec_sig_enc = ECDSASHA2Verify.encodeSSHECDSASignature(ds, ecPublicKey.getParams());
+
+				PacketUserauthRequestPublicKey ua = new PacketUserauthRequestPublicKey("ssh-connection", user,
+						algo, pk_enc, ec_sig_enc);
+
+				tm.sendMessage(ua.getPayload());
+			}
+			else if (publicKey instanceof EdDSAPublicKey)
+			{
+				final String algo = Ed25519Verify.ED25519_ID;
+
+				byte[] pk_enc = Ed25519Verify.encodeSSHEd25519PublicKey((EdDSAPublicKey) publicKey);
+
+				byte[] msg = this.generatePublicKeyUserAuthRequest(user,algo,pk_enc);
+
+				byte[] ds = signatureManager.sign(msg, SignatureManager.SIGNATURE_ALGORITHM_EdDSA_SHA512);
+
+				if (ds == null) {
+					return false;
+				}
+
+				byte[] ed_sig_enc = Ed25519Verify.encodeSSHEd25519Signature(ds);
+
+				PacketUserauthRequestPublicKey ua = new PacketUserauthRequestPublicKey("ssh-connection", user,
+						algo, pk_enc, ed_sig_enc);
+
+				tm.sendMessage(ua.getPayload());
+			}
+			else
+			{
+				throw new IOException("Unknown public key type.");
+			}
+
+			return this.isPublicKeyAuthenticationSuccessful();
+		}
+		catch (IOException e)
+		{
+			e.printStackTrace();
 			tm.close(e, false);
 			throw (IOException) new IOException("Publickey authentication failed.").initCause(e);
 		}
@@ -498,5 +534,46 @@ e.printStackTrace();
 				throw new IOException("Error, peer is flooding us with authentication packets.");
 			}
 		}
+	}
+
+	private boolean isPublicKeyAuthenticationSuccessful() throws IOException
+	{
+		byte[] ar = getNextMessage();
+		if (ar[0] == Packets.SSH_MSG_USERAUTH_SUCCESS)
+		{
+			authenticated = true;
+			tm.removeMessageHandler(this, 0, 255);
+			return true;
+		}
+
+		if (ar[0] == Packets.SSH_MSG_USERAUTH_FAILURE)
+		{
+			PacketUserauthFailure puf = new PacketUserauthFailure(ar, 0, ar.length);
+
+			remainingMethods = puf.getAuthThatCanContinue();
+			isPartialSuccess = puf.isPartialSuccess();
+
+			return false;
+		}
+
+		throw new IOException("Unexpected SSH message (type " + ar[0] + ")");
+	}
+
+	private byte[] generatePublicKeyUserAuthRequest(String user, String algorithm, byte[] publicKeyEncoded){
+		TypesWriter tw = new TypesWriter();
+		{
+			byte[] H = tm.getSessionIdentifier();
+
+			tw.writeString(H, 0, H.length);
+			tw.writeByte(Packets.SSH_MSG_USERAUTH_REQUEST);
+			tw.writeString(user);
+			tw.writeString("ssh-connection");
+			tw.writeString("publickey");
+			tw.writeBoolean(true);
+			tw.writeString(algorithm);
+			tw.writeString(publicKeyEncoded, 0, publicKeyEncoded.length);
+		}
+
+		return tw.getBytes();
 	}
 }

@@ -12,6 +12,7 @@ import java.security.SecureRandom;
 import java.util.Vector;
 
 import com.trilead.ssh2.auth.AuthenticationManager;
+import com.trilead.ssh2.auth.SignatureManager;
 import com.trilead.ssh2.channel.ChannelManager;
 import com.trilead.ssh2.crypto.CryptoWishList;
 import com.trilead.ssh2.crypto.cipher.BlockCipherFactory;
@@ -490,6 +491,56 @@ public class Connection
 		fr.close();
 
 		return authenticateWithPublicKey(user, cw.toCharArray(), password);
+	}
+
+	/**
+	 * After a successful connect, one has to authenticate oneself. The
+	 * authentication method "publickey" works by signing a challenge sent by
+	 * the server. The signature is either DSA, EC, or RSA based - it just depends
+	 * on the signature manager you specify. The signature manager should sign the
+	 * servers challenge in order to authenticate the user. The user of this library
+	 * is no longer forced to pass the private key.
+	 * <p>
+	 * If the authentication phase is complete, <code>true</code> will be
+	 * returned. If the server does not accept the request (or if further
+	 * authentication steps are needed), <code>false</code> is returned and
+	 * one can retry either by using this or any other authentication method
+	 * (use the <code>getRemainingAuthMethods</code> method to get a list of
+	 * the remaining possible methods).
+	 *
+	 * @param user
+	 *            A <code>String</code> holding the username.
+	 * @param signatureManager
+	 *            A <code>SignatureManager</code> containing a public key and implementing
+	 *            a sign method.
+	 *
+	 * @return Whether the connection is now authenticated.
+	 * @throws IOException Might be thrown if the authentication process threw an error.
+	 */
+	public synchronized boolean authenticateWithPublicKey(String user, SignatureManager signatureManager)
+			throws IOException
+	{
+		if (tm == null)
+			throw new IllegalStateException("Connection is not established!");
+
+		if (authenticated)
+			throw new IllegalStateException("Connection is already authenticated!");
+
+		if (am == null)
+			am = new AuthenticationManager(tm);
+
+		if (cm == null)
+			cm = new ChannelManager(tm);
+
+		if (user == null)
+			throw new IllegalArgumentException("user argument is null");
+
+		if (signatureManager.getPublicKey() == null)
+			throw new IllegalArgumentException("Signature manager does not contain a public key.");
+
+		authenticated =  am.authenticatePublicKey(user, signatureManager);
+
+		return authenticated;
 	}
 
 	/**
