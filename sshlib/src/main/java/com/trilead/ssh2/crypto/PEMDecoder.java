@@ -59,6 +59,8 @@ public class PEMDecoder
 		'o', 'p', 'e', 'n', 's', 's', 'h', '-', 'k', 'e', 'y', '-', 'v', '1', '\0',
 	};
 
+	private static final String ED25519_CURVE_NAME = "Ed25519";
+
 	private static final int hexToInt(char c)
 	{
 		if ((c >= 'a') && (c <= 'f'))
@@ -585,8 +587,7 @@ public class PEMDecoder
 			if (Ed25519Verify.ED25519_ID.equals(keyType)) {
 				byte[] publicBytes = trEnc.readByteString();
 				byte[] privateBytes = trEnc.readByteString();
-				EdDSAParameterSpec spec = EdDSANamedCurveTable.getByName(
-						EdDSANamedCurveTable.CURVE_ED25519_SHA512);
+				EdDSAParameterSpec spec = EdDSANamedCurveTable.getByName(ED25519_CURVE_NAME);
 				privKey = new EdDSAPrivateKey(new EdDSAPrivateKeySpec(
 						Arrays.copyOfRange(privateBytes, 0, 32), spec));
 				pubKey = new EdDSAPublicKey(new EdDSAPublicKeySpec(publicBytes, spec));
