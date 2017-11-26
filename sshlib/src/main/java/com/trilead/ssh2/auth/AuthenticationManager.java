@@ -213,19 +213,18 @@ public class AuthenticationManager implements MessageHandler
 
 				byte[] msg = this.generatePublicKeyUserAuthenticationRequest(user, "ssh-dss", pk_enc);
 
-				byte[] ds;
+				byte[] ds_enc;
 				if (signatureProxy != null) {
-					ds = signatureProxy.sign(msg, SignatureProxy.SHA1);
+					ds_enc = signatureProxy.sign(msg, SignatureProxy.SHA1);
 				} else {
 					DSAPrivateKey pk = (DSAPrivateKey) privateKey;
-					ds = DSASHA1Verify.generateSignature(msg, pk, rnd);
+					byte[] ds = DSASHA1Verify.generateSignature(msg, pk, rnd);
+					ds_enc = DSASHA1Verify.encodeSSHDSASignature(ds);
 				}
 
-				if (ds == null) {
+				if (ds_enc == null) {
 					return false;
 				}
-
-				byte[] ds_enc = DSASHA1Verify.encodeSSHDSASignature(ds);
 
 				PacketUserauthRequestPublicKey ua = new PacketUserauthRequestPublicKey("ssh-connection", user,
 						"ssh-dss", pk_enc, ds_enc);
@@ -237,19 +236,18 @@ public class AuthenticationManager implements MessageHandler
 
 				byte[] msg = this.generatePublicKeyUserAuthenticationRequest(user, "ssh-rsa", pk_enc);
 
-				byte[] ds;
+				byte[] rsa_sig_enc;
 				if (signatureProxy != null) {
-					ds = signatureProxy.sign(msg, SignatureProxy.SHA1);
+					rsa_sig_enc = signatureProxy.sign(msg, SignatureProxy.SHA1);
 				} else {
 					RSAPrivateKey pk = (RSAPrivateKey) privateKey;
-					ds = RSASHA1Verify.generateSignature(msg, pk);
+					byte[] ds = RSASHA1Verify.generateSignature(msg, pk);
+					rsa_sig_enc = RSASHA1Verify.encodeSSHRSASignature(ds);
 				}
 
-				if (ds == null) {
+				if (rsa_sig_enc == null) {
 					return false;
 				}
-
-				byte[] rsa_sig_enc = RSASHA1Verify.encodeSSHRSASignature(ds);
 
 				PacketUserauthRequestPublicKey ua = new PacketUserauthRequestPublicKey("ssh-connection", user,
 						"ssh-rsa", pk_enc, rsa_sig_enc);
@@ -267,19 +265,18 @@ public class AuthenticationManager implements MessageHandler
 
 				byte[] msg = this.generatePublicKeyUserAuthenticationRequest(user, algo, pk_enc);
 
-				byte[] ds;
+				byte[] ec_sig_enc;
 				if (signatureProxy != null) {
-					ds = signatureProxy.sign(msg, ECDSASHA2Verify.getDigestAlgorithmForParams(ecPublicKey.getParams()));
+					ec_sig_enc = signatureProxy.sign(msg, ECDSASHA2Verify.getDigestAlgorithmForParams(ecPublicKey.getParams()));
 				} else {
 					ECPrivateKey pk = (ECPrivateKey) privateKey;
-					ds = ECDSASHA2Verify.generateSignature(msg, pk);
+					byte[] ds = ECDSASHA2Verify.generateSignature(msg, pk);
+					ec_sig_enc = ECDSASHA2Verify.encodeSSHECDSASignature(ds, ecPublicKey.getParams());
 				}
 
-				if (ds == null) {
+				if (ec_sig_enc == null) {
 					return false;
 				}
-
-				byte[] ec_sig_enc = ECDSASHA2Verify.encodeSSHECDSASignature(ds, ecPublicKey.getParams());
 
 				PacketUserauthRequestPublicKey ua = new PacketUserauthRequestPublicKey("ssh-connection", user,
 						algo, pk_enc, ec_sig_enc);
@@ -294,19 +291,18 @@ public class AuthenticationManager implements MessageHandler
 
 				byte[] msg = this.generatePublicKeyUserAuthenticationRequest(user,algo,pk_enc);
 
-				byte[] ds;
+				byte[] ed_sig_enc;
 				if (signatureProxy != null) {
-					ds = signatureProxy.sign(msg, SignatureProxy.SHA512);
+					ed_sig_enc = signatureProxy.sign(msg, SignatureProxy.SHA512);
 				} else {
 					EdDSAPrivateKey pk = (EdDSAPrivateKey) privateKey;
-					ds = Ed25519Verify.generateSignature(msg, pk);
+					byte[] ds = Ed25519Verify.generateSignature(msg, pk);
+					ed_sig_enc = Ed25519Verify.encodeSSHEd25519Signature(ds);
 				}
 
-				if (ds == null) {
+				if (ed_sig_enc == null) {
 					return false;
 				}
-
-				byte[] ed_sig_enc = Ed25519Verify.encodeSSHEd25519Signature(ds);
 
 				PacketUserauthRequestPublicKey ua = new PacketUserauthRequestPublicKey("ssh-connection", user,
 						algo, pk_enc, ed_sig_enc);
